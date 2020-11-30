@@ -1,0 +1,145 @@
+#!/usr/bin/env python3
+
+import sys, re, requests, os, shutil, subprocess, argparse
+from bs4 import BeautifulSoup
+
+FFMPEG="/usr/local/bin/ffmpeg"
+
+def download_spaghetti_magic(work_dir_prefix, result_dir_prefix, page_url):
+    page_r = requests.get(page_url)
+    page_soup = BeautifulSoup(page_r.text, "lxml")
+
+    #if "Die Videos werden laufend erg" in page_r.text:
+    #    print("unfinished upload, aborting")
+    #    sys.exit(0)
+    #sigh. find out how to find out.
+
+    # first, lets get the canonical url for this video
+    video_og_url = page_soup.find("meta",  property="og:url")['content']
+
+    # make SURE we have the right type of url here
+    tvthekmagic = "https://tvthek.orf.at/profile/"
+    assert(video_og_url.startswith(tvthekmagic))
+
+    # then format some paths with it
+    url_dir = video_og_url.replace(tvthekmagic, "")
+    work_dir = os.path.join(work_dir_prefix, os.path.normpath(url_dir))
+    fragment_dir = os.path.join(work_dir_prefix, os.path.normpath(url_dir), 'fragments')
+
+    # the work_dir serves as a lockfile, exit if it exists
+    if os.path.exists(work_dir):
+        print("work dir already exists:", work_dir)
+        sys.exit(0)
+
+    os.makedirs(fragment_dir)
+
+    # save the page content for debugging later
+    with open(os.path.join(work_dir, 'page.html'), 'w') as f:
+        f.write(page_r.text)
+
+    # get some names
+    video_og_title = page_soup.find("meta",  property="og:title")['content']
+    video_og_description= page_soup.find("meta",  property="og:description")['content']
+    video_time= page_soup.find("time")['datetime']
+    video_html_sendung = page_soup.find("p", {"class":"js-description-subtitle"}).contents[0]
+    video_html_title = page_soup.find("h2", {"class":"js-description-title"}).contents[0]
+    video_cat, video_series_name = video_html_sendung.split("|")
+    video_cat = video_cat.strip()
+    video_series_name = video_series_name.strip()
+
+    # handle orf crazyness to adequately name files
+    if "ZIB" in video_html_title:
+        video_name = video_og_title
+        video_series_name = video_html_title
+    else:
+        video_name = video_html_title
+
+    # sometimes this helps
+    if not video_series_name:
+        video_name = video_og_title
+        video_series_name = video_html_title
+
+    # save some debug info for later
+    with open(os.path.join(work_dir, 'info.txt'), 'w') as f:
+        f.write(("video_og_title: '{}'\nvideo_og_description: '{}'\nvideo_html_sendung: "+
+                "'{}'\nvideo_html_title: '{}'\nvideo_cat: '{}'\nvideo_series_name: '{}'\n").format(
+                video_og_title, video_og_description, video_html_sendung, video_html_title, video_cat, video_series_name))
+
+    # extract some random url from the whole page which we hope gives us some magic numbers. Try the
+    # one pattern first, in case this is one of those vi de os
+    for regex in [
+        r'https:\\/\\/apasfiis.sf.apa.at\\/ipad\\/cms-([a-z_]*)\\/([_0-9]*)_Q8C.mp4\\/playlist.m3u8',
+        r'https:\\/\\/apasfiis.sf.apa.at\\/ipad\\/cms-([a-z_]*)\\/([a-zA-Z_0-9-]*)_Q8C.mp4\\/playlist.m3u8',
+    ]:
+        m = re.search(regex, page_r.text)
+        if m:
+            break
+
+    cms = m.group(1)
+    identifier = m.group(2)
+
+    # guesstimate the url prefix we need from the magic numbers
+    url_prefix = "https://apasfiis.sf.apa.at/cms-{}_nas/_definst_/nas/cms-{}/online/{}_Q8C.mp4".format(cms, cms, identifier)
+
+    # list of all the files we need to get
+    chunklist_url = "{}/chunklist.m3u8".format(url_prefix)
+    print(chunklist_url)
+    chunklist_r = requests.get(chunklist_url)
+    with open(os.path.join(work_dir, 'chunklist.m3u8'), 'w') as f:
+        f.write(chunklist_r.text)
+
+    # make a list of urls for the files we need to get
+    parts = []
+    for line in chunklist_r.text.splitlines():
+        if line.endswith(".ts"):
+            parts.append((line, "{}/{}".format(url_prefix, line)))
+
+    # download it
+    for part, url in parts:
+        r = requests.get(url, stream=True)
+        part_path = os.path.join(fragment_dir, part)
+        with open(part_path, 'wb') as f:
+            r.raw.decode_content = True
+            shutil.copyfileobj(r.raw, f)
+            print('wrote', part)
+
+    # write the input.txt for ffmpeg
+    input_path = os.path.join(work_dir, 'input.txt')
+    with open(input_path, 'w') as f:
+        for part, _ in parts:
+            f.write("file '{}'\n".format(os.path.join("fragments", part)))
+
+    # run ffmpeg
+    video_file_name = video_name + ".mp4"
+    output_path = os.path.join(work_dir, video_file_name)
+    ret = subprocess.call([FFMPEG, "-f", "concat", "-i", input_path,
+                           "-metadata", "TITLE='{}'".format(video_name),
+                           "-metadata", "PODCASTDESC='{}'".format(video_og_description),
+                           "-metadata", "SUBTITLE='{}'".format(video_og_description),
+                           "-metadata", "GENRE={}".format(video_cat),
+                           "-metadata", "YEAR={}".format(video_time),
+                           "-metadata", "COPYRIGHT=ORF",
+                           "-codec", "copy", output_path])
+
+    # if successful, copy result & clean up a bit (but leave the directory as a lock file & for debug
+    # purposes
+    if ret == 0:
+        for part, _ in parts:
+            part_path = os.path.join(fragment_dir, part)
+            os.unlink(part_path)
+        result_dir = os.path.join(result_dir_prefix, video_series_name)
+        if not os.path.isdir(result_dir):
+            os.makedirs(result_dir)
+        result_path = os.path.join(result_dir, video_file_name)
+        shutil.copyfile(output_path, result_path)
+        os.unlink(output_path)
+    return ret
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description='Download some things')
+    parser.add_argument('url')
+    parser.add_argument('--work-dir', default='workdir')
+    parser.add_argument('--result-dir', default='/srv/media/rundfunk')
+    args = parser.parse_args()
+    sys.exit(
+        download_spaghetti_magic(args.work_dir, args.result_dir, args.url))
