@@ -107,8 +107,8 @@ def get_part_urls(work_dir, url_prefix, debug=False):
             f.write(json.dumps(parts))
     return parts
 
-def create_output_dir(output_dir_prefix, facts, folder_name, debug=False):
-    output_dir = os.path.join(output_dir_prefix, facts.get(folder_name, folder_name))
+def create_output_dir(output_dir_prefix, folder_name, debug=False):
+    output_dir = os.path.join(output_dir_prefix, folder_name)
 
     if not os.path.isdir(output_dir):
         if debug: print("creating", output_dir)
@@ -179,11 +179,15 @@ if __name__ == "__main__":
 
     page_text = get_page_text(args.url)
     facts = collect_facts(page_text, args.debug)
+    if args.facts_only:
+        from pprint import pprint
+        pprint(facts)
+        sys.exit(0)
     work_dir = create_work_dir(args.work_dir, facts['url_dir'], args.overwrite_existing, args.debug)
     part_urls = get_part_urls(args.work_dir, facts['url_prefix'], args.debug)
-    video_name = make_video_name(facts, args.series_name, args.episode_name, ("vom " + facts['human_date']) if args.add_date else "")
+    video_name = make_video_name(facts, args.series_name, args.episode_name, (" vom " + facts['video_human_date']) if args.add_date else "")
     subtitles_url = get_subtitles_url(page_text)
-    output_dir = create_output_dir(args.result_dir, facts, facts.get(args.series_name), args.debug)
+    output_dir = create_output_dir(args.result_dir, facts.get(args.series_name, args.series_name), args.debug)
     write_metadata(output_dir, video_name, facts.get(args.episode_name, args.episode_name), facts['video_og_description'], facts['video_date'], args.debug)
     download_subtitles(work_dir, output_dir, video_name, subtitles_url, args.debug)
     download_parts(work_dir, output_dir, video_name, part_urls, args.debug)
