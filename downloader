@@ -3,7 +3,7 @@
 import sys, re, requests, os, shutil, subprocess, argparse, json
 from bs4 import BeautifulSoup
 
-TVTHEKMAGIC = "https://tvthek.orf.at/profile/"
+TVTHEKMAGIC = "https://tvthek.orf.at/"
 
 def get_page_text(page_url):
     # make SURE we have the right type of url here
@@ -38,7 +38,7 @@ def collect_facts(page_text, debug=False):
     video_cat, video_series_name = video_html_sendung.split("|")
     video_timestamp = page_soup.find("time")['datetime']
     video_year, _ = video_timestamp.split('-', 1)
-    video_date, _ = video_timestamp.split('CET', 1)
+    video_date, _ = video_timestamp.split('CEST', 1)
     video_og_url = page_soup.find("meta",  property="og:url")['content']
     cms = m.group(1)
     identifier = m.group(2)
@@ -151,8 +151,9 @@ def download_parts(work_dir, output_dir, video_name, parts, debug=False):
     # download it and save to file
     video_file_name = video_name + ".mp4"
     work_path = os.path.join(work_dir, video_file_name)
-    for url in parts:
-        if debug: print("downloading", url)
+    total_parts = len(parts)
+    for i,url in enumerate(parts):
+        if debug: print("downloading ",i,"/",total_parts, url)
         r = requests.get(url, stream=True)
         with open(work_path, 'ab') as f:
             if debug: print("writing to", work_path)
@@ -168,7 +169,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Download some things')
     parser.add_argument('url')
     parser.add_argument('--work-dir', default='workdir')
-    parser.add_argument('--result-dir', default='/srv/media/rundfunk')
+    parser.add_argument('--result-dir', default='~/Downloads/ORFtvThek')
     parser.add_argument('--overwrite-existing', action='store_true')
     parser.add_argument('--add-date', action='store_true')
     parser.add_argument('--facts-only', action='store_true')
@@ -189,22 +190,6 @@ if __name__ == "__main__":
     subtitles_url = get_subtitles_url(page_text)
     output_dir = create_output_dir(args.result_dir, facts.get(args.series_name, args.series_name), args.debug)
     write_metadata(output_dir, video_name, facts.get(args.episode_name, args.episode_name), facts['video_og_description'], facts['video_date'], args.debug)
-    download_subtitles(work_dir, output_dir, video_name, subtitles_url, args.debug)
+    if subtitles_url != None:
+        download_subtitles(work_dir, output_dir, video_name, subtitles_url, args.debug)
     download_parts(work_dir, output_dir, video_name, part_urls, args.debug)
-    # save the page content for debugging later
-    #if debug:
-    #    with open(os.path.join(work_dir, 'page.html'), 'w') as f:
-    #        f.write(page_r.text)
-
-    #if debug:
-    #    # save some debug info for later
-    #    with open(os.path.join(work_dir, 'facts.json'), 'w') as f:
-    #        f.write(json.dumps(facts))
-
-    #sys.exit(
-    #    download_spaghetti_magic(args.work_dir, args.result_dir, args.url, args.add_date, args.series_name, args.episode_name))
-    ## the work_dir serves as a lockfile, exit if it exists
-    #if os.path.exists(work_dir):
-    #    print("work dir already exists:", work_dir)
-    #    sys.exit(0)
-    #{"id":videoplayer_id":"5fc6c23227ffa","playlist":[{"id":14806138,"episode_id":14073493,"title_prefix":"Soko Donau: Puzzle","title_separator":"|","title":"Soko Donau: Puzzle","description":"Carl, Penny und Simon sind beim Blutspenden, als in dem B\u00fcrogeb\u00e4ude pl\u00f6tzlich Sch\u00fcsse fallen. Panik bricht aus. Handelt es sich hier um einen Amoklauf und wo ist der Sch\u00fctze? Unsere Cops haben nur Sekunden, um zu entscheiden, ob sie auf die Cobra warten oder unbewaffnet eingreifen. \r\nDarsteller:\r\nMichael Steinocher  (Simon Steininger)\r\nStefan J\u00fcrgens  (Carl Ribarski)\r\nLilian Klebow  (Penny Lanz)\r\nBrigitte Kren  (Dr. Henriette Wolf)\r\nMaria Happel  (Dr. Franziska Beck)\r\nHelmut Bohatsch  (Franz Wohlfahrt)\r\nPaul Matic  (Dr. Seiler)\r\nMichael A. Grimm  (Richard K\u00f6gl)\r\nKarin Lischka  (Maria Degenhardt)\r\nJulian Loidl  (Thommy Lackner)\r\nAndreas Hajdusic  (Konrad Magreiter)\r\nPatrick Seletzky  (Maximilian Strobl)\r\nFanny Berner  (Mia)\r\nTina Nitsche  (Tina Licht)","duration":2599760,"preview_image_url":"https:\/\/api-tvthek.orf.at\/uploads\/media\/segments\/0112\/77\/thumb_11176287_segments_player.jpeg","sources":[{"src":"https:\/\/apasfiis.sf.apa.at\/ipad\/cms-austria\/2020-12-01_2015_sd_01_Soko-Donau--Puz_____14073493__o__7648190165__s14806138_Q1A.3gp\/playlist.m3u8","is_uhd":false,"quality":"Q1A","quality_string":"Niedrig","delivery":"hls","type":"video\/mp4","protocol":"http"},{"src":"https:\/\/apasfiis.sf.apa.at\/ipad\/cms-austria\/2020-12-01_2015_sd_01_Soko-Donau--Puz_____14073493__o__7648190165__s14806138_Q4A.mp4\/playlist.m3u8","is_uhd":false,"quality":"Q4A","quality_string":"Mittel","delivery":"hls","type":"video\/mp4","protocol":"http"},{"src":"https:\/\/apasfiis.sf.apa.at\/ipad\/cms-austria\/2020-12-01_2015_sd_01_Soko-Donau--Puz_____14073493__o__7648190165__s14806138_Q6A.mp4\/playlist.m3u8","is_uhd":false,"quality":"Q6A","quality_string":"Hoch","delivery":"hls","type":"video\/mp4","protocol":"http"},{"src":"https:\/\/apasfiis.sf.apa.at\/ipad\/cms-austria\/2020-12-01_2015_sd_01_Soko-Donau--Puz_____14073493__o__7648190165__s14806138_Q8C.mp4\/playlist.m3u8","is_uhd":false,"quality":"Q8C","quality_string":"Sehr hoch","delivery":"hls","type":"video\/mp4","protocol":"http"},{"src":"https:\/\/apasfiis.sf.apa.at\/ipad\/cms-austria\/2020-12-01_2015_sd_01_Soko-Donau--Puz_____14073493__o__7648190165__s14806138_QXB.mp4\/playlist.m3u8","is_uhd":false,"quality":"QXB","quality_string":"Adaptiv","delivery":"hls","type":"video\/mp4","protocol":"http"},{"src":"https:\/\/apasfiis.sf.apa.at\/f4m\/cms-austria\/2020-12-01_2015_sd_01_Soko-Donau--Puz_____14073493__o__7648190165__s14806138_Q1A.3gp\/manifest.f4m","is_uhd":false,"quality":"Q1A","quality_string":"Niedrig","delivery":"hds","type":"video\/mp4","protocol":"http"},{"src":"https:\/\/apasfiis.sf.apa.at\/f4m\/cms-austria\/2020-12-01_2015_sd_01_Soko-Donau--Puz_____14073493__o__7648190165__s14806138_Q4A.mp4\/manifest.f4m","is_uhd":false,"quality":"Q4A","quality_string":"Mittel","delivery":"hds","type":"video\/mp4","protocol":"http"},{"src":"https:\/\/apasfiis.sf.apa.at\/f4m\/cms-austria\/2020-12-01_2015_sd_01_Soko-Donau--Puz_____14073493__o__7648190165__s14806138_Q6A.mp4\/manifest.f4m","is_uhd":false,"quality":"Q6A","quality_string":"Hoch","delivery":"hds","type":"video\/mp4","protocol":"http"},{"src":"https:\/\/apasfiis.sf.apa.at\/f4m\/cms-austria\/2020-12-01_2015_sd_01_Soko-Donau--Puz_____14073493__o__7648190165__s14806138_Q8C.mp4\/manifest.f4m","is_uhd":false,"quality":"Q8C","quality_string":"Sehr hoch","delivery":"hds","type":"video\/mp4","protocol":"http"},{"src":"https:\/\/apasfiis.sf.apa.at\/f4m\/cms-austria\/2020-12-01_2015_sd_01_Soko-Donau--Puz_____14073493__o__7648190165__s14806138_QXB.mp4\/manifest.f4m","is_uhd":false,"quality":"QXB","quality_string":"Adaptiv","delivery":"hds","type":"video\/mp4","protocol":"http"}],"position":0,"last_segment":true,"subtitles":[{"src":"https:\/\/api-tvthek.orf.at\/uploads\/media\/subtitles\/0112\/80\/1174f631041dcdfe818961a8fe661746054a8283.xml","type":"xml","lang":"de-AT"},{"src":"https:\/\/api-tvthek.orf.at\/uploads\/media\/subtitles\/0112\/80\/9010969cc2f83c219331e25a38e58544614bf7e2.srt","type":"srt","lang":"de-AT"},{"src":"https:\/\/api-tvthek.orf.at\/uploads\/media\/subtitles\/0112\/80\/8faeb8c4e34ab740f6f45033a4aae049318c1fec.vtt","type":"vtt","lang":"de-AT"},{"src":"https:\/\/api-tvthek.orf.at\/uploads\/media\/subtitles\/0112\/80\/26f35eb1046b8633dbf7a6296ccfc3e0544246cc.smi","type":"sami","lang":"de-AT"},{"src":"https:\/\/api-tvthek.orf.at\/uploads\/media\/subtitles\/0112\/80\/c70e10ea6c73334ee616817eb1fff3a884fcd2f1.ttml","type":"ttml","lang":"de-AT"}],"right":"austria","is_enabled":true,"has_active_youthprotection":false,"pre_bumper":{"active":false,"sources":[]},"post_bumper":{"active":false,"sources":[]},"hash":"45cab66ec361a56580c1b251fc2c8c2c"}],"is_liveplayer":false}
